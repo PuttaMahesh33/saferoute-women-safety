@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Navbar } from "@/components/Navbar";
 import { FloatingPanicButton } from "@/components/PanicButton";
 import { GoogleMap } from "@/components/GoogleMap";
@@ -7,8 +8,9 @@ import { RouteCard } from "@/components/RouteCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, Navigation, Clock, ArrowRight, Loader2, AlertCircle } from "lucide-react";
+import { Search, Navigation, Clock, ArrowRight, Loader2, AlertCircle, X, ChevronRight } from "lucide-react";
 import { useDirections, RouteResult } from "@/hooks/useGoogleMaps";
+import { useNavigation } from "@/hooks/useNavigation";
 import { toast } from "sonner";
 
 export default function RoutesPage() {
@@ -16,6 +18,18 @@ export default function RoutesPage() {
   const [destination, setDestination] = useState("");
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
   const { getDirections, routes, loading, error, mapsLoaded } = useDirections();
+  const navigate = useNavigate();
+  const { 
+    isNavigating, 
+    currentStep, 
+    instructions, 
+    timeRemaining, 
+    distanceRemaining,
+    progress,
+    startNavigation, 
+    stopNavigation, 
+    nextStep 
+  } = useNavigation();
 
   const handleSearch = async () => {
     if (!source || !destination) {
@@ -28,6 +42,18 @@ export default function RoutesPage() {
       setSelectedRoute(results[0].id);
       toast.success(`Found ${results.length} routes. Safest route selected.`);
     }
+  };
+
+  const handleStartNavigation = () => {
+    const routeData = routes.find(r => r.id === selectedRoute);
+    if (routeData) {
+      startNavigation(routeData);
+      toast.success("Navigation started! Follow the directions.");
+    }
+  };
+
+  const handleGoToTracking = () => {
+    navigate("/tracking");
   };
 
   const getRouteCounts = () => {
@@ -62,6 +88,59 @@ export default function RoutesPage() {
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Left Panel - Search & Routes */}
           <div className="space-y-6">
+            {/* Navigation Mode Panel */}
+            {isNavigating && (
+              <Card className="border-safe/50 bg-safe-bg">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg text-safe">🧭 Navigating</CardTitle>
+                    <Button variant="ghost" size="icon" onClick={stopNavigation}>
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Progress bar */}
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div 
+                      className="bg-safe h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  
+                  {/* Current instruction */}
+                  <div className="p-3 bg-card rounded-lg">
+                    <p className="text-sm text-muted-foreground">Step {currentStep + 1}</p>
+                    <p className="font-medium">{instructions[currentStep]}</p>
+                  </div>
+                  
+                  <div className="flex justify-between text-sm">
+                    <span>{distanceRemaining} remaining</span>
+                    <span>{timeRemaining}</span>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="flex-1"
+                      onClick={nextStep}
+                      disabled={currentStep >= instructions.length - 1}
+                    >
+                      Next Step <ChevronRight className="w-4 h-4" />
+                    </Button>
+                    <Button 
+                      variant="safe" 
+                      size="sm"
+                      onClick={handleGoToTracking}
+                    >
+                      Live Track
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Search Card */}
             <Card>
               <CardHeader>
@@ -95,7 +174,7 @@ export default function RoutesPage() {
                   variant="hero" 
                   className="w-full" 
                   onClick={handleSearch}
-                  disabled={loading || !source || !destination || !mapsLoaded}
+                  disabled={loading || !source || !destination || !mapsLoaded || isNavigating}
                 >
                   {loading ? (
                     <>
@@ -220,9 +299,24 @@ export default function RoutesPage() {
                         <p className="text-xs text-muted-foreground mb-3">
                           via {selectedRouteData.via}
                         </p>
-                        <Button variant="safe" className="w-full" size="sm">
-                          Start Navigation
-                          <ArrowRight className="w-4 h-4 ml-1" />
+                        <Button 
+                          variant="safe" 
+                          className="w-full" 
+                          size="sm"
+                          onClick={handleStartNavigation}
+                          disabled={isNavigating}
+                        >
+                          {isNavigating ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Navigating...
+                            </>
+                          ) : (
+                            <>
+                              Start Navigation
+                              <ArrowRight className="w-4 h-4 ml-1" />
+                            </>
+                          )}
                         </Button>
                       </CardContent>
                     </Card>

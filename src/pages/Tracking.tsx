@@ -1,7 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Navbar } from "@/components/Navbar";
 import { FloatingPanicButton } from "@/components/PanicButton";
-import { MapPlaceholder } from "@/components/MapPlaceholder";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,9 +15,13 @@ import {
   Hospital, 
   Phone,
   Clock,
-  MapPin
+  MapPin,
+  Loader2
 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { useGoogleMaps } from "@/hooks/useGoogleMaps";
+import { useLiveTracking } from "@/hooks/useLiveTracking";
+import { useEmergencyContacts } from "@/hooks/useEmergencyContacts";
+import { cn } from "@/lib/utils";
 
 interface SafeZone {
   id: string;
@@ -34,40 +37,66 @@ const safezones: SafeZone[] = [
 ];
 
 export default function TrackingPage() {
-  const [isTracking, setIsTracking] = useState(false);
   const [shareWithContacts, setShareWithContacts] = useState(true);
-  const [currentPosition, setCurrentPosition] = useState<{ lat: number; lng: number } | null>(null);
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const { toast } = useToast();
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const markerRef = useRef<google.maps.Marker | null>(null);
+  const mapsLoaded = useGoogleMaps();
+  const { contacts } = useEmergencyContacts();
+  
+  const { 
+    isTracking, 
+    currentPosition, 
+    elapsedTime, 
+    startTracking, 
+    stopTracking, 
+    shareLocation 
+  } = useLiveTracking();
 
+  // Initialize map
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isTracking) {
-      interval = setInterval(() => {
-        setElapsedTime((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isTracking]);
+    if (!mapsLoaded || !mapRef.current || mapInstanceRef.current) return;
 
+    const map = new google.maps.Map(mapRef.current, {
+      center: { lat: 28.6139, lng: 77.209 },
+      zoom: 15,
+      styles: [
+        { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+      ],
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+    });
+
+    mapInstanceRef.current = map;
+  }, [mapsLoaded]);
+
+  // Update marker when position changes
   useEffect(() => {
-    if (isTracking && navigator.geolocation) {
-      const watchId = navigator.geolocation.watchPosition(
-        (position) => {
-          setCurrentPosition({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          });
-        },
-        (error) => {
-          console.error("Error getting location:", error);
-        },
-        { enableHighAccuracy: true }
-      );
+    if (!mapInstanceRef.current || !currentPosition) return;
 
-      return () => navigator.geolocation.clearWatch(watchId);
+    const pos = { lat: currentPosition.lat, lng: currentPosition.lng };
+
+    if (markerRef.current) {
+      markerRef.current.setPosition(pos);
+    } else {
+      markerRef.current = new google.maps.Marker({
+        position: pos,
+        map: mapInstanceRef.current,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 12,
+          fillColor: "#22c55e",
+          fillOpacity: 1,
+          strokeColor: "#ffffff",
+          strokeWeight: 3,
+        },
+        title: "Your Location",
+      });
     }
-  }, [isTracking]);
+
+    mapInstanceRef.current.panTo(pos);
+  }, [currentPosition]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -76,29 +105,15 @@ export default function TrackingPage() {
   };
 
   const handleStartTracking = () => {
-    setIsTracking(true);
-    setElapsedTime(0);
-    toast({
-      title: "Live Tracking Started",
-      description: shareWithContacts 
-        ? "Your location is now being shared with your emergency contacts."
-        : "Tracking active. Enable sharing to notify contacts.",
-    });
+    startTracking();
   };
 
   const handleStopTracking = () => {
-    setIsTracking(false);
-    toast({
-      title: "Tracking Stopped",
-      description: "Your location is no longer being shared.",
-    });
-  };
-
-  const handleShareLocation = () => {
-    toast({
-      title: "Location Shared",
-      description: "Your current location has been sent to your emergency contacts.",
-    });
+    stopTracking();
+    if (markerRef.current) {
+      markerRef.current.setMap(null);
+      markerRef.current = null;
+    }
   };
 
   return (
@@ -187,7 +202,8 @@ export default function TrackingPage() {
                 <Button 
                   variant="outline" 
                   className="w-full"
-                  onClick={handleShareLocation}
+                  onClick={shareLocation}
+                  disabled={!currentPosition}
                 >
                   <Share2 className="w-4 h-4 mr-2" />
                   Share Current Location
@@ -197,10 +213,10 @@ export default function TrackingPage() {
 
             {/* Current Location */}
             {currentPosition && (
-              <Card>
+              <Card className="border-safe/50">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
-                    <MapPin className="w-4 h-4" />
+                    <MapPin className="w-4 h-4 text-safe" />
                     Current Location
                   </CardTitle>
                 </CardHeader>
@@ -216,7 +232,7 @@ export default function TrackingPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Updated</span>
-                      <span>Just now</span>
+                      <span className="text-safe">Live</span>
                     </div>
                   </div>
                 </CardContent>
@@ -257,17 +273,28 @@ export default function TrackingPage() {
           {/* Map View */}
           <div className="lg:col-span-2">
             <Card className="h-[600px] overflow-hidden">
-              <MapPlaceholder 
-                className="h-full" 
-                showLocation={isTracking}
-              >
+              <div className="relative w-full h-full">
+                {!mapsLoaded ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-muted">
+                    <div className="flex flex-col items-center gap-3">
+                      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                      <span className="text-sm text-muted-foreground">Loading Map...</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div ref={mapRef} className="absolute inset-0" />
+                )}
+                
                 {/* Status overlay */}
-                <div className="absolute top-4 left-4 right-4">
+                <div className="absolute top-4 left-4 right-4 z-10">
                   <Card variant="glass" className="bg-card/95 backdrop-blur-sm">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className={`w-3 h-3 rounded-full ${isTracking ? "bg-safe animate-pulse" : "bg-muted"}`} />
+                          <div className={cn(
+                            "w-3 h-3 rounded-full",
+                            isTracking ? "bg-safe animate-pulse" : "bg-muted"
+                          )} />
                           <span className="font-medium">
                             {isTracking ? "Tracking Active" : "Tracking Inactive"}
                           </span>
@@ -285,19 +312,21 @@ export default function TrackingPage() {
 
                 {/* Emergency contacts overlay */}
                 {isTracking && shareWithContacts && (
-                  <div className="absolute bottom-4 left-4">
+                  <div className="absolute bottom-4 left-4 z-10">
                     <Card variant="glass" className="bg-card/95 backdrop-blur-sm">
                       <CardContent className="p-3">
                         <div className="flex items-center gap-2 text-sm">
                           <Users className="w-4 h-4 text-safe" />
                           <span className="text-muted-foreground">Sharing with</span>
-                          <Badge variant="safe-soft">3 contacts</Badge>
+                          <Badge variant="safe-soft">
+                            {contacts.length || 0} contacts
+                          </Badge>
                         </div>
                       </CardContent>
                     </Card>
                   </div>
                 )}
-              </MapPlaceholder>
+              </div>
             </Card>
           </div>
         </div>
