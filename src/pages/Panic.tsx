@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Navbar } from "@/components/Navbar";
 import { PanicButton } from "@/components/PanicButton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -14,57 +15,36 @@ import {
   Shield, 
   MapPin,
   Bell,
-  CheckCircle
+  CheckCircle,
+  Loader2,
+  LogIn
 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-
-interface EmergencyContact {
-  id: string;
-  name: string;
-  phone: string;
-  relationship: string;
-}
-
-const defaultContacts: EmergencyContact[] = [
-  { id: "1", name: "Mom", phone: "+1 234 567 8900", relationship: "Family" },
-  { id: "2", name: "Best Friend", phone: "+1 234 567 8901", relationship: "Friend" },
-];
+import { useEmergencyContacts } from "@/hooks/useEmergencyContacts";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function PanicPage() {
-  const [contacts, setContacts] = useState<EmergencyContact[]>(defaultContacts);
-  const [newContact, setNewContact] = useState({ name: "", phone: "", relationship: "" });
+  const [newContact, setNewContact] = useState({ name: "", phone: "", email: "", relationship: "" });
   const [showAddForm, setShowAddForm] = useState(false);
-  const { toast } = useToast();
+  const { contacts, loading, addContact, deleteContact } = useEmergencyContacts();
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
-  const handleAddContact = () => {
-    if (!newContact.name || !newContact.phone) {
-      toast({
-        title: "Missing Information",
-        description: "Please enter name and phone number.",
-        variant: "destructive",
-      });
+  const handleAddContact = async () => {
+    if (!newContact.name || (!newContact.phone && !newContact.email)) {
       return;
     }
 
-    const contact: EmergencyContact = {
-      id: Date.now().toString(),
-      ...newContact,
-    };
-    setContacts([...contacts, contact]);
-    setNewContact({ name: "", phone: "", relationship: "" });
-    setShowAddForm(false);
-    toast({
-      title: "Contact Added",
-      description: `${newContact.name} has been added to your emergency contacts.`,
+    const result = await addContact({
+      name: newContact.name,
+      phone: newContact.phone || undefined,
+      email: newContact.email || undefined,
+      relationship: newContact.relationship || undefined,
     });
-  };
 
-  const handleDeleteContact = (id: string) => {
-    setContacts(contacts.filter((c) => c.id !== id));
-    toast({
-      title: "Contact Removed",
-      description: "Emergency contact has been removed.",
-    });
+    if (result) {
+      setNewContact({ name: "", phone: "", email: "", relationship: "" });
+      setShowAddForm(false);
+    }
   };
 
   return (
@@ -94,7 +74,7 @@ export default function PanicPage() {
                 <CardTitle className="text-2xl">Emergency SOS</CardTitle>
                 <CardDescription>
                   Press the button below in case of emergency. Your location will be 
-                  automatically shared with your emergency contacts.
+                  automatically shared with your emergency contacts and saved to our system.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col items-center py-8">
@@ -109,18 +89,19 @@ export default function PanicPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {[
-                  { icon: MapPin, text: "Your GPS location is captured instantly" },
-                  { icon: Users, text: "Alert sent to all emergency contacts" },
-                  { icon: Bell, text: "Admin dashboard receives notification" },
-                  { icon: Shield, text: "Nearby safe zones are identified" },
+                  { icon: MapPin, text: "Your GPS location is captured instantly", active: true },
+                  { icon: Users, text: "Alert sent to all emergency contacts", active: true },
+                  { icon: Bell, text: "Admin dashboard receives real-time notification", active: true },
+                  { icon: Shield, text: "Continuous location tracking begins", active: true },
                 ].map((item, i) => {
                   const Icon = item.icon;
                   return (
                     <div key={i} className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-danger/10 flex items-center justify-center flex-shrink-0">
-                        <Icon className="w-4 h-4 text-danger" />
+                      <div className="w-8 h-8 rounded-full bg-safe/20 flex items-center justify-center flex-shrink-0">
+                        <Icon className="w-4 h-4 text-safe" />
                       </div>
-                      <span className="text-sm text-muted-foreground">{item.text}</span>
+                      <span className="text-sm text-foreground">{item.text}</span>
+                      <CheckCircle className="w-4 h-4 text-safe ml-auto" />
                     </div>
                   );
                 })}
@@ -130,6 +111,28 @@ export default function PanicPage() {
 
           {/* Emergency Contacts Section */}
           <div className="space-y-6">
+            {/* Login prompt if not logged in */}
+            {!user && (
+              <Card className="border-primary/50 bg-primary/5">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
+                      <LogIn className="w-6 h-6 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold">Login to Save Contacts</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Sign in to save your emergency contacts permanently.
+                      </p>
+                    </div>
+                    <Button onClick={() => navigate("/auth")}>
+                      Sign In
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -143,6 +146,7 @@ export default function PanicPage() {
                     variant="outline" 
                     size="sm"
                     onClick={() => setShowAddForm(!showAddForm)}
+                    disabled={!user}
                   >
                     <Plus className="w-4 h-4 mr-1" />
                     Add
@@ -151,11 +155,11 @@ export default function PanicPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Add Contact Form */}
-                {showAddForm && (
+                {showAddForm && user && (
                   <Card variant="flat" className="bg-muted/50 p-4">
                     <div className="space-y-3">
                       <Input
-                        placeholder="Contact Name"
+                        placeholder="Contact Name *"
                         value={newContact.name}
                         onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
                       />
@@ -165,12 +169,23 @@ export default function PanicPage() {
                         onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })}
                       />
                       <Input
+                        placeholder="Email Address"
+                        type="email"
+                        value={newContact.email}
+                        onChange={(e) => setNewContact({ ...newContact, email: e.target.value })}
+                      />
+                      <Input
                         placeholder="Relationship (e.g., Family, Friend)"
                         value={newContact.relationship}
                         onChange={(e) => setNewContact({ ...newContact, relationship: e.target.value })}
                       />
                       <div className="flex gap-2">
-                        <Button variant="safe" size="sm" onClick={handleAddContact}>
+                        <Button 
+                          variant="safe" 
+                          size="sm" 
+                          onClick={handleAddContact}
+                          disabled={!newContact.name || (!newContact.phone && !newContact.email)}
+                        >
                           <CheckCircle className="w-4 h-4 mr-1" />
                           Save Contact
                         </Button>
@@ -183,11 +198,17 @@ export default function PanicPage() {
                 )}
 
                 {/* Contact List */}
-                {contacts.length === 0 ? (
+                {loading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  </div>
+                ) : contacts.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
                     <p>No emergency contacts added yet.</p>
-                    <p className="text-sm">Add contacts to receive alerts.</p>
+                    <p className="text-sm">
+                      {user ? "Add contacts to receive alerts." : "Sign in to add contacts."}
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -204,7 +225,9 @@ export default function PanicPage() {
                           </div>
                           <div>
                             <p className="font-medium text-foreground">{contact.name}</p>
-                            <p className="text-sm text-muted-foreground">{contact.phone}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {contact.phone || contact.email}
+                            </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -216,7 +239,7 @@ export default function PanicPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDeleteContact(contact.id)}
+                            onClick={() => deleteContact(contact.id)}
                             className="text-muted-foreground hover:text-danger"
                           >
                             <Trash2 className="w-4 h-4" />

@@ -9,6 +9,7 @@ import TrackingPage from "./pages/Tracking";
 import PanicPage from "./pages/Panic";
 import RatingsPage from "./pages/Ratings";
 import AdminPage from "./pages/Admin";
+import AuthPage from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +27,7 @@ const App = () => (
           <Route path="/panic" element={<PanicPage />} />
           <Route path="/ratings" element={<RatingsPage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/auth" element={<AuthPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
