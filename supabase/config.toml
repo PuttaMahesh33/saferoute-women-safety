@@ -1,1 +1,4 @@
 project_id = "ulnrvhsyexhmtptangge"
+
+[functions.send-emergency-alert]
+verify_jwt = false
