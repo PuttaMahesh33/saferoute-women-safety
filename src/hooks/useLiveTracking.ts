@@ -48,12 +48,39 @@ export function useLiveTracking() {
       return;
     }
 
+    // Set tracking state immediately for instant UI feedback
+    setState(prev => ({
+      ...prev,
+      isTracking: true,
+      elapsedTime: 0,
+      destination: destination || null,
+      routePath: routePath || null,
+    }));
+
+    toast({
+      title: "Live Tracking Started",
+      description: "Getting your location...",
+    });
+
+    // Get quick initial position first (low accuracy but fast)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setState(prev => ({
+          ...prev,
+          currentPosition: { lat: latitude, lng: longitude },
+        }));
+      },
+      () => {}, // Ignore error for quick position
+      { enableHighAccuracy: false, timeout: 3000, maximumAge: 60000 }
+    );
+
     // Start elapsed time counter
     timerRef.current = setInterval(() => {
       setState(prev => ({ ...prev, elapsedTime: prev.elapsedTime + 1 }));
     }, 1000);
 
-    // Start watching position
+    // Start watching position with high accuracy
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
@@ -61,7 +88,6 @@ export function useLiveTracking() {
         
         setState(prev => ({
           ...prev,
-          isTracking: true,
           currentPosition: newPos,
         }));
 
@@ -84,23 +110,10 @@ export function useLiveTracking() {
       },
       {
         enableHighAccuracy: true,
-        maximumAge: 3000,
-        timeout: 10000,
+        maximumAge: 5000,
+        timeout: 15000,
       }
     );
-
-    setState(prev => ({
-      ...prev,
-      isTracking: true,
-      elapsedTime: 0,
-      destination: destination || null,
-      routePath: routePath || null,
-    }));
-
-    toast({
-      title: "Live Tracking Started",
-      description: "Your location is now being tracked in real-time.",
-    });
   }, [user, toast]);
 
   const stopTracking = useCallback(() => {
