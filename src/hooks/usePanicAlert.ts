@@ -8,6 +8,8 @@ interface PanicAlertState {
   alertId: string | null;
   latitude: number | null;
   longitude: number | null;
+  emailsSent: number;
+  deliveryStatus: string | null;
 }
 
 export function usePanicAlert() {
@@ -16,11 +18,44 @@ export function usePanicAlert() {
     alertId: null,
     latitude: null,
     longitude: null,
+    emailsSent: 0,
+    deliveryStatus: null,
   });
   const [sending, setSending] = useState(false);
   const watchIdRef = useRef<number | null>(null);
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
+
+  const sendEmergencyAlerts = useCallback(async (
+    alertId: string,
+    latitude: number,
+    longitude: number
+  ) => {
+    try {
+      console.log("Sending emergency alerts via edge function...");
+      
+      const { data, error } = await supabase.functions.invoke("send-emergency-alert", {
+        body: {
+          userId: user?.id || null,
+          userName: profile?.full_name || user?.email || "SafeRoute User",
+          latitude,
+          longitude,
+          alertId,
+        },
+      });
+
+      if (error) {
+        console.error("Edge function error:", error);
+        throw error;
+      }
+
+      console.log("Emergency alert response:", data);
+      return data;
+    } catch (err) {
+      console.error("Failed to send emergency alerts:", err);
+      throw err;
+    }
+  }, [user, profile]);
 
   const triggerPanic = useCallback(async () => {
     setSending(true);
@@ -62,19 +97,51 @@ export function usePanicAlert() {
         longitude,
       });
 
+      // Send real email alerts to emergency contacts
+      let emailResult = { emailsSent: 0, deliveryStatus: "pending" };
+      try {
+        const alertResponse = await sendEmergencyAlerts(alertData.id, latitude, longitude);
+        emailResult = {
+          emailsSent: alertResponse.results?.filter((r: any) => r.success).length || 0,
+          deliveryStatus: alertResponse.deliveryStatus || "unknown",
+        };
+        
+        if (alertResponse.deliveryStatus === "delivered") {
+          toast({
+            title: "📧 Emails Sent Successfully!",
+            description: `Emergency alerts sent to ${emailResult.emailsSent} contact(s).`,
+          });
+        } else if (alertResponse.deliveryStatus === "no_contacts") {
+          toast({
+            title: "⚠️ No Emergency Contacts",
+            description: "Add emergency contacts to receive alerts.",
+            variant: "destructive",
+          });
+        }
+      } catch (emailError) {
+        console.error("Email sending failed:", emailError);
+        toast({
+          title: "⚠️ Email Delivery Issue",
+          description: "Alert saved but email delivery failed. Check your contacts.",
+          variant: "destructive",
+        });
+      }
+
       setState({
         isActive: true,
         alertId: alertData.id,
         latitude,
         longitude,
+        emailsSent: emailResult.emailsSent,
+        deliveryStatus: emailResult.deliveryStatus,
       });
 
       // Start continuous tracking
       startContinuousTracking(alertData.id);
 
       toast({
-        title: "🚨 Emergency Alert Sent!",
-        description: `Location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}. Help is on the way.`,
+        title: "🚨 Emergency Alert Activated!",
+        description: `Location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}. Live tracking started.`,
         variant: "destructive",
       });
 
@@ -82,8 +149,8 @@ export function usePanicAlert() {
     } catch (err: any) {
       console.error("Panic alert error:", err);
       toast({
-        title: "Emergency Alert",
-        description: err.message || "Could not get location. Alert sent without coordinates.",
+        title: "Emergency Alert Error",
+        description: err.message || "Could not get location. Please try again.",
         variant: "destructive",
       });
 
@@ -105,6 +172,8 @@ export function usePanicAlert() {
           alertId: alertData.id,
           latitude: null,
           longitude: null,
+          emailsSent: 0,
+          deliveryStatus: "location_failed",
         });
       }
 
@@ -112,7 +181,7 @@ export function usePanicAlert() {
     } finally {
       setSending(false);
     }
-  }, [user, toast]);
+  }, [user, toast, sendEmergencyAlerts]);
 
   const startContinuousTracking = useCallback((alertId: string) => {
     if (!navigator.geolocation) return;
@@ -175,6 +244,8 @@ export function usePanicAlert() {
       alertId: null,
       latitude: null,
       longitude: null,
+      emailsSent: 0,
+      deliveryStatus: null,
     });
 
     toast({
