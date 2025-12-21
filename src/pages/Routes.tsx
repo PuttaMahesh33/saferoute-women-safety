@@ -22,6 +22,7 @@ export default function RoutesPage() {
   const { 
     isNavigating, 
     currentStep, 
+    currentPosition,
     instructions, 
     timeRemaining, 
     distanceRemaining,
@@ -245,6 +246,9 @@ export default function RoutesPage() {
                 className="h-full" 
                 routes={routes}
                 selectedRouteId={selectedRoute}
+                isNavigating={isNavigating}
+                userPosition={isNavigating ? currentPosition : null}
+                navigationRouteId={selectedRoute}
               >
                 {/* Legend */}
                 <div className="absolute top-4 right-4 bg-card/95 backdrop-blur-sm rounded-lg p-3 shadow-card z-10">

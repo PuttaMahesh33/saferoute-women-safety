@@ -10,6 +10,10 @@ interface GoogleMapProps {
   selectedRouteId?: string | null;
   onMapReady?: (map: google.maps.Map) => void;
   children?: React.ReactNode;
+  // Navigation mode props
+  isNavigating?: boolean;
+  userPosition?: { lat: number; lng: number } | null;
+  navigationRouteId?: string | null;
 }
 
 const ROUTE_COLORS = {
@@ -23,12 +27,16 @@ export function GoogleMap({
   routes = [], 
   selectedRouteId,
   onMapReady,
-  children 
+  children,
+  isNavigating = false,
+  userPosition,
+  navigationRouteId,
 }: GoogleMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const polylinesRef = useRef<google.maps.Polyline[]>([]);
   const markersRef = useRef<google.maps.Marker[]>([]);
+  const userMarkerRef = useRef<google.maps.Marker | null>(null);
   const mapsLoaded = useGoogleMaps();
   const [mapReady, setMapReady] = useState(false);
 
@@ -61,6 +69,45 @@ export function GoogleMap({
     onMapReady?.(map);
   }, [mapsLoaded, onMapReady]);
 
+  // Update user position marker during navigation
+  useEffect(() => {
+    if (!mapInstanceRef.current || !mapsLoaded) return;
+
+    if (isNavigating && userPosition) {
+      const pos = { lat: userPosition.lat, lng: userPosition.lng };
+
+      if (userMarkerRef.current) {
+        userMarkerRef.current.setPosition(pos);
+      } else {
+        // Create pulsing user marker
+        userMarkerRef.current = new google.maps.Marker({
+          position: pos,
+          map: mapInstanceRef.current,
+          icon: {
+            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+            scale: 8,
+            fillColor: "#3b82f6",
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 3,
+            rotation: 0,
+          },
+          title: "Your Location",
+          zIndex: 100,
+        });
+      }
+
+      // Pan to user with slight offset for better view
+      mapInstanceRef.current.panTo(pos);
+      if (mapInstanceRef.current.getZoom()! < 16) {
+        mapInstanceRef.current.setZoom(16);
+      }
+    } else if (!isNavigating && userMarkerRef.current) {
+      userMarkerRef.current.setMap(null);
+      userMarkerRef.current = null;
+    }
+  }, [isNavigating, userPosition, mapsLoaded]);
+
   // Draw routes on map
   const drawRoutes = useCallback(() => {
     if (!mapInstanceRef.current || !mapsLoaded) return;
@@ -74,9 +121,10 @@ export function GoogleMap({
     if (routes.length === 0) return;
 
     const bounds = new google.maps.LatLngBounds();
+    const activeRouteId = isNavigating ? navigationRouteId : selectedRouteId;
 
     routes.forEach((route, index) => {
-      const isSelected = selectedRouteId === route.id;
+      const isSelected = activeRouteId === route.id;
       const color = route.safetyScore >= 70 
         ? ROUTE_COLORS.safe 
         : route.safetyScore >= 40 
@@ -88,13 +136,16 @@ export function GoogleMap({
       
       if (path.length === 0) return;
 
+      // In navigation mode, only show the active route
+      if (isNavigating && !isSelected) return;
+
       // Draw polyline
       const polyline = new google.maps.Polyline({
         path,
         geodesic: true,
-        strokeColor: color,
-        strokeOpacity: isSelected ? 1 : 0.5,
-        strokeWeight: isSelected ? 6 : 4,
+        strokeColor: isNavigating ? "#3b82f6" : color,
+        strokeOpacity: isSelected ? 1 : 0.4,
+        strokeWeight: isSelected ? 7 : 3,
         zIndex: isSelected ? 10 : 5 - index,
         map: mapInstanceRef.current,
       });
@@ -104,14 +155,14 @@ export function GoogleMap({
       // Extend bounds
       path.forEach((point) => bounds.extend(point));
 
-      // Add start and end markers only for selected route
+      // Add start and end markers for selected/navigating route
       if (isSelected && path.length > 0) {
         const startMarker = new google.maps.Marker({
           position: path[0],
           map: mapInstanceRef.current,
           icon: {
             path: google.maps.SymbolPath.CIRCLE,
-            scale: 10,
+            scale: 12,
             fillColor: "#6366f1",
             fillOpacity: 1,
             strokeColor: "#ffffff",
@@ -125,12 +176,14 @@ export function GoogleMap({
           position: path[path.length - 1],
           map: mapInstanceRef.current,
           icon: {
-            path: google.maps.SymbolPath.CIRCLE,
-            scale: 10,
-            fillColor: color,
-            fillOpacity: 1,
-            strokeColor: "#ffffff",
-            strokeWeight: 3,
+            url: "data:image/svg+xml," + encodeURIComponent(`
+              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="${color}" stroke="white" stroke-width="2">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                <circle cx="12" cy="10" r="3" fill="white"/>
+              </svg>
+            `),
+            scaledSize: new google.maps.Size(32, 32),
+            anchor: new google.maps.Point(16, 32),
           },
           title: "Destination",
           zIndex: 20,
@@ -140,11 +193,11 @@ export function GoogleMap({
       }
     });
 
-    // Fit map to bounds
-    if (routes.length > 0) {
+    // Fit map to bounds (only when not navigating - navigation follows user)
+    if (routes.length > 0 && !isNavigating) {
       mapInstanceRef.current.fitBounds(bounds, { top: 60, right: 60, bottom: 60, left: 60 });
     }
-  }, [routes, selectedRouteId, mapsLoaded]);
+  }, [routes, selectedRouteId, navigationRouteId, isNavigating, mapsLoaded]);
 
   useEffect(() => {
     if (mapReady) {
