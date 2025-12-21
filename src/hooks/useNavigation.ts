@@ -55,32 +55,7 @@ export function useNavigation() {
       "Your destination is on the right",
     ];
 
-    // Start watching position
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        
-        setState(prev => ({
-          ...prev,
-          currentPosition: { lat: latitude, lng: longitude },
-        }));
-
-        // Simulate progress (in real app, compare with route path)
-        setState(prev => ({
-          ...prev,
-          progress: Math.min(prev.progress + 1, 100),
-        }));
-      },
-      (error) => {
-        console.error("Navigation tracking error:", error);
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 2000,
-        timeout: 10000,
-      }
-    );
-
+    // Set navigation state immediately for instant UI feedback
     setState({
       isNavigating: true,
       currentStep: 0,
@@ -96,6 +71,40 @@ export function useNavigation() {
       title: "Navigation Started",
       description: `Following ${route.name} - ${route.duration} to destination.`,
     });
+
+    // Get quick initial position first (low accuracy but fast)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setState(prev => ({
+          ...prev,
+          currentPosition: { lat: latitude, lng: longitude },
+        }));
+      },
+      () => {}, // Ignore error for quick position
+      { enableHighAccuracy: false, timeout: 2000, maximumAge: 60000 }
+    );
+
+    // Start watching position with high accuracy
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        
+        setState(prev => ({
+          ...prev,
+          currentPosition: { lat: latitude, lng: longitude },
+          progress: Math.min(prev.progress + 1, 100),
+        }));
+      },
+      (error) => {
+        console.error("Navigation tracking error:", error);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 15000,
+      }
+    );
   }, [toast]);
 
   const stopNavigation = useCallback(() => {
