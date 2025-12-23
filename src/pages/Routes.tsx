@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Navbar } from "@/components/Navbar";
 import { FloatingPanicButton } from "@/components/PanicButton";
@@ -8,15 +8,21 @@ import { RouteCard } from "@/components/RouteCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, Navigation, Clock, ArrowRight, Loader2, AlertCircle, X, ChevronRight, MapPin, Gauge, AlertTriangle } from "lucide-react";
+import { Search, Navigation, Clock, ArrowRight, Loader2, AlertCircle, X, ChevronRight, MapPin, Gauge, AlertTriangle, Locate } from "lucide-react";
 import { useDirections, RouteResult } from "@/hooks/useGoogleMaps";
 import { useNavigation } from "@/hooks/useNavigation";
 import { toast } from "sonner";
 
+type LocationStatus = 'detecting' | 'active' | 'error' | 'denied';
+
 export default function RoutesPage() {
-  const [source, setSource] = useState("");
   const [destination, setDestination] = useState("");
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>('detecting');
+  const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
+  const watchIdRef = useRef<number | null>(null);
+  
   const { getDirections, routes, loading, error, mapsLoaded } = useDirections();
   const navigate = useNavigate();
   const { 
@@ -37,16 +43,79 @@ export default function RoutesPage() {
     nextStep 
   } = useNavigation();
 
+  // Auto-detect GPS location on page load
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setLocationStatus('error');
+      toast.error("Geolocation is not supported by your browser");
+      return;
+    }
+
+    setLocationStatus('detecting');
+    toast.info("📍 Detecting your location...");
+
+    // Get initial position quickly
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        setCurrentLocation({ lat: latitude, lng: longitude });
+        setLocationAccuracy(accuracy);
+        setLocationStatus('active');
+        toast.success("📍 Location detected! Enter your destination.");
+      },
+      (error) => {
+        console.error("GPS error:", error);
+        if (error.code === error.PERMISSION_DENIED) {
+          setLocationStatus('denied');
+          toast.error("Location permission denied. Please enable GPS.");
+        } else {
+          setLocationStatus('error');
+          toast.error("Could not detect your location. Please check GPS settings.");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+
+    // Start continuous location tracking
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        setCurrentLocation({ lat: latitude, lng: longitude });
+        setLocationAccuracy(accuracy);
+        setLocationStatus('active');
+      },
+      (error) => {
+        console.error("GPS watch error:", error);
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    );
+
+    // Cleanup on unmount
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, []);
+
   const handleSearch = async () => {
-    if (!source || !destination) {
-      toast.error("Please enter both starting point and destination");
+    if (!currentLocation) {
+      toast.error("Waiting for GPS location. Please wait...");
       return;
     }
     
-    const results = await getDirections(source, destination);
+    if (!destination) {
+      toast.error("Please enter your destination");
+      return;
+    }
+    
+    // Use current GPS coordinates as source
+    const sourceCoords = `${currentLocation.lat},${currentLocation.lng}`;
+    
+    const results = await getDirections(sourceCoords, destination);
     if (results.length > 0) {
       setSelectedRoute(results[0].id);
-      toast.success(`Found ${results.length} routes. Safest route selected.`);
+      toast.success(`Found ${results.length} routes from your current location.`);
     }
   };
 
@@ -72,6 +141,21 @@ export default function RoutesPage() {
   const counts = getRouteCounts();
   const selectedRouteData = routes.find(r => r.id === selectedRoute);
 
+  const getLocationStatusDisplay = () => {
+    switch (locationStatus) {
+      case 'detecting':
+        return { text: "Detecting location...", color: "text-moderate", icon: <Loader2 className="w-4 h-4 animate-spin" /> };
+      case 'active':
+        return { text: "Live GPS Active", color: "text-safe", icon: <Locate className="w-4 h-4" /> };
+      case 'denied':
+        return { text: "GPS Permission Denied", color: "text-danger", icon: <AlertCircle className="w-4 h-4" /> };
+      case 'error':
+        return { text: "GPS Error", color: "text-danger", icon: <AlertCircle className="w-4 h-4" /> };
+    }
+  };
+
+  const locationDisplay = getLocationStatusDisplay();
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -89,7 +173,7 @@ export default function RoutesPage() {
           <p className="text-muted-foreground">
             {isNavigating 
               ? "Your live GPS position is being tracked. Walk to see the marker move." 
-              : "Enter your locations to discover AI-recommended safe routes."}
+              : "Your GPS location is used as starting point. Just enter your destination."}
           </p>
         </div>
 
@@ -221,16 +305,35 @@ export default function RoutesPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-3">
+                    {/* Auto GPS Source - Not editable */}
                     <div>
                       <label className="text-sm text-muted-foreground mb-1.5 block">
-                        Starting Point
+                        Starting Point (GPS)
                       </label>
-                      <PlacesAutocomplete
-                        value={source}
-                        onChange={setSource}
-                        placeholder="Enter starting location"
-                      />
+                      <div className={`flex items-center gap-2 p-3 rounded-lg border ${
+                        locationStatus === 'active' ? 'bg-safe-bg border-safe/30' : 
+                        locationStatus === 'detecting' ? 'bg-muted border-muted' :
+                        'bg-danger-bg border-danger/30'
+                      }`}>
+                        {locationDisplay.icon}
+                        <div className="flex-1">
+                          <p className={`text-sm font-medium ${locationDisplay.color}`}>
+                            {locationStatus === 'active' ? '📍 Current Location' : locationDisplay.text}
+                          </p>
+                          {currentLocation && locationStatus === 'active' && (
+                            <p className="text-xs text-muted-foreground">
+                              {currentLocation.lat.toFixed(5)}, {currentLocation.lng.toFixed(5)}
+                              {locationAccuracy && ` (±${Math.round(locationAccuracy)}m)`}
+                            </p>
+                          )}
+                        </div>
+                        {locationStatus === 'active' && (
+                          <Badge variant="safe" className="text-xs">Live</Badge>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Destination Input */}
                     <div>
                       <label className="text-sm text-muted-foreground mb-1.5 block">
                         Destination
@@ -238,7 +341,7 @@ export default function RoutesPage() {
                       <PlacesAutocomplete
                         value={destination}
                         onChange={setDestination}
-                        placeholder="Enter destination"
+                        placeholder="Where do you want to go?"
                       />
                     </div>
                   </div>
@@ -247,7 +350,7 @@ export default function RoutesPage() {
                     variant="hero" 
                     className="w-full" 
                     onClick={handleSearch}
-                    disabled={loading || !source || !destination || !mapsLoaded}
+                    disabled={loading || !destination || !mapsLoaded || locationStatus !== 'active'}
                   >
                     {loading ? (
                       <>
@@ -258,6 +361,16 @@ export default function RoutesPage() {
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
                         Loading Maps...
+                      </>
+                    ) : locationStatus === 'detecting' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Getting GPS...
+                      </>
+                    ) : locationStatus !== 'active' ? (
+                      <>
+                        <AlertCircle className="w-4 h-4" />
+                        GPS Required
                       </>
                     ) : (
                       <>
@@ -320,11 +433,11 @@ export default function RoutesPage() {
                 routes={routes}
                 selectedRouteId={selectedRoute}
                 isNavigating={isNavigating}
-                userPosition={currentPosition}
+                userPosition={isNavigating ? currentPosition : currentLocation}
                 navigationRouteId={selectedRoute}
-                accuracy={accuracy}
+                accuracy={isNavigating ? accuracy : locationAccuracy}
                 heading={heading}
-                gpsStatus={gpsStatus}
+                gpsStatus={isNavigating ? gpsStatus : (locationStatus === 'active' ? 'tracking' : locationStatus === 'detecting' ? 'initializing' : 'error')}
               >
                 {/* Legend - hide during navigation */}
                 {!isNavigating && (
