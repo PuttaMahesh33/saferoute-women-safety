@@ -136,11 +136,11 @@ export function GoogleMap({
     animationFrameRef.current = requestAnimationFrame(animate);
   }, []);
 
-  // Update user position marker during navigation with smooth animation
+  // Update user position marker (during navigation OR when showing current location)
   useEffect(() => {
     if (!mapInstanceRef.current || !mapsLoaded) return;
 
-    if (isNavigating && userPosition) {
+    if (userPosition) {
       const pos = { lat: userPosition.lat, lng: userPosition.lng };
 
       // Create or update accuracy circle
@@ -183,10 +183,16 @@ export function GoogleMap({
           zIndex: 100,
         });
         currentAnimatedPosRef.current = pos;
+        
+        // Center map on user's position when first detected
+        if (!isNavigating) {
+          mapInstanceRef.current.panTo(pos);
+          mapInstanceRef.current.setZoom(15);
+        }
       }
 
-      // Create heading indicator (direction arrow)
-      if (heading !== null && heading !== undefined) {
+      // Create heading indicator (direction arrow) during navigation
+      if (isNavigating && heading !== null && heading !== undefined) {
         if (headingMarkerRef.current) {
           headingMarkerRef.current.setPosition(pos);
           const icon = headingMarkerRef.current.getIcon() as google.maps.Symbol;
@@ -215,16 +221,16 @@ export function GoogleMap({
         }
       }
 
-      // Auto-center map on user with smooth pan
-      mapInstanceRef.current.panTo(pos);
-      
-      // Zoom in for navigation
-      const currentZoom = mapInstanceRef.current.getZoom();
-      if (currentZoom && currentZoom < 17) {
-        mapInstanceRef.current.setZoom(17);
+      // Auto-center map on user during navigation
+      if (isNavigating) {
+        mapInstanceRef.current.panTo(pos);
+        const currentZoom = mapInstanceRef.current.getZoom();
+        if (currentZoom && currentZoom < 17) {
+          mapInstanceRef.current.setZoom(17);
+        }
       }
-    } else if (!isNavigating) {
-      // Cleanup navigation markers
+    } else {
+      // Cleanup markers when no position
       if (userMarkerRef.current) {
         userMarkerRef.current.setMap(null);
         userMarkerRef.current = null;
@@ -244,7 +250,7 @@ export function GoogleMap({
       currentAnimatedPosRef.current = null;
       targetPositionRef.current = null;
     }
-  }, [isNavigating, userPosition, mapsLoaded, accuracy, heading, animateMarkerTo]);
+  }, [userPosition, mapsLoaded, accuracy, heading, isNavigating, animateMarkerTo]);
 
   // Cleanup animation on unmount
   useEffect(() => {
