@@ -8,7 +8,7 @@ import { RouteCard } from "@/components/RouteCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, Navigation, Clock, ArrowRight, Loader2, AlertCircle, X, ChevronRight } from "lucide-react";
+import { Search, Navigation, Clock, ArrowRight, Loader2, AlertCircle, X, ChevronRight, MapPin, Gauge, AlertTriangle } from "lucide-react";
 import { useDirections, RouteResult } from "@/hooks/useGoogleMaps";
 import { useNavigation } from "@/hooks/useNavigation";
 import { toast } from "sonner";
@@ -27,6 +27,11 @@ export default function RoutesPage() {
     timeRemaining, 
     distanceRemaining,
     progress,
+    accuracy,
+    heading,
+    speed,
+    isOffRoute,
+    gpsStatus,
     startNavigation, 
     stopNavigation, 
     nextStep 
@@ -49,7 +54,7 @@ export default function RoutesPage() {
     const routeData = routes.find(r => r.id === selectedRoute);
     if (routeData) {
       startNavigation(routeData);
-      toast.success("Navigation started! Follow the directions.");
+      toast.success("🧭 GPS Navigation started! Walk to see live tracking.");
     }
   };
 
@@ -76,13 +81,15 @@ export default function RoutesPage() {
         <div className="mb-8">
           <Badge variant="safe-soft" className="mb-3">
             <Navigation className="w-3 h-3 mr-1" />
-            Route Finder
+            {isNavigating ? "Live GPS Navigation" : "Route Finder"}
           </Badge>
           <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-2">
-            Find Your Safest Route
+            {isNavigating ? "Navigating to Destination" : "Find Your Safest Route"}
           </h1>
           <p className="text-muted-foreground">
-            Enter your locations to discover AI-recommended safe routes.
+            {isNavigating 
+              ? "Your live GPS position is being tracked. Walk to see the marker move." 
+              : "Enter your locations to discover AI-recommended safe routes."}
           </p>
         </div>
 
@@ -94,31 +101,95 @@ export default function RoutesPage() {
               <Card className="border-safe/50 bg-safe-bg">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg text-safe">🧭 Navigating</CardTitle>
+                    <CardTitle className="text-lg text-safe flex items-center gap-2">
+                      <Navigation className="w-5 h-5 animate-pulse" />
+                      Live Navigation
+                    </CardTitle>
                     <Button variant="ghost" size="icon" onClick={stopNavigation}>
                       <X className="w-4 h-4" />
                     </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {/* GPS Status */}
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">GPS Status:</span>
+                    <Badge variant={
+                      gpsStatus === 'tracking' ? 'safe' : 
+                      gpsStatus === 'initializing' ? 'moderate' : 'danger'
+                    }>
+                      {gpsStatus === 'tracking' ? '📡 Active' : 
+                       gpsStatus === 'initializing' ? '⏳ Acquiring...' : '❌ Error'}
+                    </Badge>
+                  </div>
+
+                  {/* Off Route Warning */}
+                  {isOffRoute && (
+                    <div className="flex items-center gap-2 p-2 bg-danger-bg rounded-lg text-danger text-sm">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span>You are off route!</span>
+                    </div>
+                  )}
+
                   {/* Progress bar */}
-                  <div className="w-full bg-muted rounded-full h-2">
-                    <div 
-                      className="bg-safe h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${progress}%` }}
-                    />
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Progress</span>
+                      <span>{Math.round(progress)}%</span>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2">
+                      <div 
+                        className="bg-safe h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
                   </div>
                   
                   {/* Current instruction */}
                   <div className="p-3 bg-card rounded-lg">
-                    <p className="text-sm text-muted-foreground">Step {currentStep + 1}</p>
+                    <p className="text-xs text-muted-foreground">Step {currentStep + 1} of {instructions.length}</p>
                     <p className="font-medium">{instructions[currentStep]}</p>
                   </div>
-                  
-                  <div className="flex justify-between text-sm">
-                    <span>{distanceRemaining} remaining</span>
-                    <span>{timeRemaining}</span>
+
+                  {/* Live Stats */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-card rounded-lg">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                        <MapPin className="w-3 h-3" />
+                        Distance
+                      </div>
+                      <p className="font-semibold">{distanceRemaining || "Calculating..."}</p>
+                    </div>
+                    <div className="p-3 bg-card rounded-lg">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                        <Clock className="w-3 h-3" />
+                        ETA
+                      </div>
+                      <p className="font-semibold">{timeRemaining || "Calculating..."}</p>
+                    </div>
                   </div>
+
+                  {/* GPS Accuracy */}
+                  {accuracy && (
+                    <div className="flex items-center justify-between text-sm p-2 bg-card rounded-lg">
+                      <span className="flex items-center gap-1 text-muted-foreground">
+                        <Gauge className="w-3 h-3" />
+                        GPS Accuracy
+                      </span>
+                      <span className={accuracy < 20 ? "text-safe" : accuracy < 50 ? "text-moderate" : "text-danger"}>
+                        ±{Math.round(accuracy)}m
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Current Position */}
+                  {currentPosition && (
+                    <div className="text-xs text-muted-foreground p-2 bg-card rounded-lg">
+                      <span className="font-medium">Your Position:</span>
+                      <br />
+                      {currentPosition.lat.toFixed(6)}, {currentPosition.lng.toFixed(6)}
+                    </div>
+                  )}
                   
                   <div className="flex gap-2">
                     <Button 
@@ -135,7 +206,7 @@ export default function RoutesPage() {
                       size="sm"
                       onClick={handleGoToTracking}
                     >
-                      Live Track
+                      Share Location
                     </Button>
                   </div>
                 </CardContent>
@@ -143,87 +214,89 @@ export default function RoutesPage() {
             )}
 
             {/* Search Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Route Search</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm text-muted-foreground mb-1.5 block">
-                      Starting Point
-                    </label>
-                    <PlacesAutocomplete
-                      value={source}
-                      onChange={setSource}
-                      placeholder="Enter starting location"
-                    />
+            {!isNavigating && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Route Search</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-sm text-muted-foreground mb-1.5 block">
+                        Starting Point
+                      </label>
+                      <PlacesAutocomplete
+                        value={source}
+                        onChange={setSource}
+                        placeholder="Enter starting location"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-muted-foreground mb-1.5 block">
+                        Destination
+                      </label>
+                      <PlacesAutocomplete
+                        value={destination}
+                        onChange={setDestination}
+                        placeholder="Enter destination"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-sm text-muted-foreground mb-1.5 block">
-                      Destination
-                    </label>
-                    <PlacesAutocomplete
-                      value={destination}
-                      onChange={setDestination}
-                      placeholder="Enter destination"
-                    />
-                  </div>
-                </div>
-                
-                <Button 
-                  variant="hero" 
-                  className="w-full" 
-                  onClick={handleSearch}
-                  disabled={loading || !source || !destination || !mapsLoaded || isNavigating}
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Analyzing Routes...
-                    </>
-                  ) : !mapsLoaded ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Loading Maps...
-                    </>
-                  ) : (
-                    <>
-                      <Search className="w-4 h-4" />
-                      Find Safe Routes
-                    </>
+                  
+                  <Button 
+                    variant="hero" 
+                    className="w-full" 
+                    onClick={handleSearch}
+                    disabled={loading || !source || !destination || !mapsLoaded}
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Analyzing Routes...
+                      </>
+                    ) : !mapsLoaded ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Loading Maps...
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        Find Safe Routes
+                      </>
+                    )}
+                  </Button>
+
+                  {error && (
+                    <div className="flex items-center gap-2 text-sm text-danger bg-danger-bg p-3 rounded-lg">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      {error}
+                    </div>
                   )}
-                </Button>
 
-                {error && (
-                  <div className="flex items-center gap-2 text-sm text-danger bg-danger-bg p-3 rounded-lg">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    {error}
-                  </div>
-                )}
-
-                {/* Quick stats */}
-                {routes.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2 pt-2">
-                    <div className="text-center p-2 rounded-lg bg-safe-bg">
-                      <div className="text-lg font-bold text-safe">{counts.safe}</div>
-                      <div className="text-[10px] text-muted-foreground">Safe</div>
+                  {/* Quick stats */}
+                  {routes.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 pt-2">
+                      <div className="text-center p-2 rounded-lg bg-safe-bg">
+                        <div className="text-lg font-bold text-safe">{counts.safe}</div>
+                        <div className="text-[10px] text-muted-foreground">Safe</div>
+                      </div>
+                      <div className="text-center p-2 rounded-lg bg-moderate-bg">
+                        <div className="text-lg font-bold text-moderate">{counts.moderate}</div>
+                        <div className="text-[10px] text-muted-foreground">Moderate</div>
+                      </div>
+                      <div className="text-center p-2 rounded-lg bg-danger-bg">
+                        <div className="text-lg font-bold text-danger">{counts.danger}</div>
+                        <div className="text-[10px] text-muted-foreground">High Risk</div>
+                      </div>
                     </div>
-                    <div className="text-center p-2 rounded-lg bg-moderate-bg">
-                      <div className="text-lg font-bold text-moderate">{counts.moderate}</div>
-                      <div className="text-[10px] text-muted-foreground">Moderate</div>
-                    </div>
-                    <div className="text-center p-2 rounded-lg bg-danger-bg">
-                      <div className="text-lg font-bold text-danger">{counts.danger}</div>
-                      <div className="text-[10px] text-muted-foreground">High Risk</div>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Route Cards */}
-            {routes.length > 0 && (
+            {routes.length > 0 && !isNavigating && (
               <div className="space-y-4">
                 <h3 className="font-semibold text-foreground">Available Routes</h3>
                 {routes.map((route, index) => (
@@ -247,30 +320,35 @@ export default function RoutesPage() {
                 routes={routes}
                 selectedRouteId={selectedRoute}
                 isNavigating={isNavigating}
-                userPosition={isNavigating ? currentPosition : null}
+                userPosition={currentPosition}
                 navigationRouteId={selectedRoute}
+                accuracy={accuracy}
+                heading={heading}
+                gpsStatus={gpsStatus}
               >
-                {/* Legend */}
-                <div className="absolute top-4 right-4 bg-card/95 backdrop-blur-sm rounded-lg p-3 shadow-card z-10">
-                  <h4 className="text-sm font-semibold mb-2">Route Legend</h4>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="w-4 h-1 bg-safe rounded" />
-                      <span>Safe Route (70+)</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="w-4 h-1 bg-moderate rounded" />
-                      <span>Moderate (40-69)</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="w-4 h-1 bg-danger rounded" />
-                      <span>High Risk (&lt;40)</span>
+                {/* Legend - hide during navigation */}
+                {!isNavigating && (
+                  <div className="absolute top-4 right-4 bg-card/95 backdrop-blur-sm rounded-lg p-3 shadow-card z-10">
+                    <h4 className="text-sm font-semibold mb-2">Route Legend</h4>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2 text-xs">
+                        <div className="w-4 h-1 bg-safe rounded" />
+                        <span>Safe Route (70+)</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <div className="w-4 h-1 bg-moderate rounded" />
+                        <span>Moderate (40-69)</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <div className="w-4 h-1 bg-danger rounded" />
+                        <span>High Risk (&lt;40)</span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* Selected route info */}
-                {selectedRouteData && (
+                {selectedRouteData && !isNavigating && (
                   <div className="absolute bottom-4 left-4 right-4 md:right-auto md:max-w-sm z-10">
                     <Card variant="glass" className="bg-card/95 backdrop-blur-sm">
                       <CardContent className="p-4">
@@ -308,20 +386,30 @@ export default function RoutesPage() {
                           className="w-full" 
                           size="sm"
                           onClick={handleStartNavigation}
-                          disabled={isNavigating}
                         >
-                          {isNavigating ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Navigating...
-                            </>
-                          ) : (
-                            <>
-                              Start Navigation
-                              <ArrowRight className="w-4 h-4 ml-1" />
-                            </>
-                          )}
+                          <Navigation className="w-4 h-4 mr-1" />
+                          Start GPS Navigation
+                          <ArrowRight className="w-4 h-4 ml-1" />
                         </Button>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
+                {/* Navigation info overlay */}
+                {isNavigating && (
+                  <div className="absolute bottom-4 left-4 right-4 z-10">
+                    <Card className="bg-card/95 backdrop-blur-sm border-safe/50">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-2xl font-bold text-safe">{distanceRemaining}</p>
+                            <p className="text-sm text-muted-foreground">to destination • {timeRemaining}</p>
+                          </div>
+                          <Button variant="danger" size="sm" onClick={stopNavigation}>
+                            End Navigation
+                          </Button>
+                        </div>
                       </CardContent>
                     </Card>
                   </div>
