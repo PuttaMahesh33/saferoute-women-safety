@@ -51,9 +51,10 @@ export function Navbar() {
                     isActive && "bg-primary text-primary-foreground"
                   )}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-4 w-4 text-foreground" />
                   {item.label}
                 </Button>
+
               </Link>
             );
           })}
@@ -86,9 +87,10 @@ export function Navbar() {
                       isActive && "bg-primary text-primary-foreground"
                     )}
                   >
-                    <Icon className="h-4 w-4" />
+                    <Icon className="h-4 w-4 text-foreground" />
                     {item.label}
                   </Button>
+
                 </Link>
               );
             })}
